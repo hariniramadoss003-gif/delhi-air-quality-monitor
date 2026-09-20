@@ -1,22 +1,31 @@
 from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
+import os
 import sqlite3
+import threading
+import time
 import requests
 import pandas as pd
 import joblib
-import os
-import threading
-import time
-from datetime import datetime
+from datetime import datetime, timedelta
+
+app = Flask(__name__)
+CORS(app)
 
 # =========================================================
 # PATHS
 # =========================================================
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_DIR = os.path.dirname(BASE_DIR)
+
+# If app.py is inside backend folder, project files are one level above
+if os.path.basename(BASE_DIR).lower() == "backend":
+    PROJECT_DIR = os.path.dirname(BASE_DIR)
+else:
+    PROJECT_DIR = BASE_DIR
 
 DATABASE = os.path.join(BASE_DIR, "air_quality.db")
+
 MODEL_PATH = os.path.join(PROJECT_DIR, "aqi_model.joblib")
 FEATURES_PATH = os.path.join(PROJECT_DIR, "aqi_features.joblib")
 
@@ -29,111 +38,88 @@ LONGITUDE = 77.2090
 LOCATION_NAME = "Delhi NCR"
 
 # =========================================================
-# FLASK
+# LOAD ML MODEL
 # =========================================================
 
-app = Flask(__name__)
-CORS(app, origins="*")
-
-# =========================================================
-# ML MODEL
-# =========================================================
+model = None
+feature_names = []
 
 try:
-    model = joblib.load(MODEL_PATH)
-    features = joblib.load(FEATURES_PATH)
+    if os.path.exists(MODEL_PATH):
+        model = joblib.load(MODEL_PATH)
+        print("==========================================")
+        print("ML MODEL LOADED SUCCESSFULLY")
+        print("Model:", MODEL_PATH)
+        print("==========================================")
+    else:
+        print("WARNING: ML model not found:", MODEL_PATH)
 
-    print("==========================================")
-    print("ML MODEL LOADED SUCCESSFULLY")
-    print("Model:", MODEL_PATH)
-    print("Features:", features)
-    print("==========================================")
+    if os.path.exists(FEATURES_PATH):
+        feature_names = joblib.load(FEATURES_PATH)
+        print("ML FEATURES LOADED:", feature_names)
+    else:
+        print("WARNING: Feature file not found:", FEATURES_PATH)
 
 except Exception as e:
-
-    model = None
-    features = []
-
-    print("ML MODEL ERROR:", e)
+    print("ML LOAD ERROR:", e)
 
 
 # =========================================================
 # DATABASE
 # =========================================================
 
+def get_connection():
+    conn = sqlite3.connect(DATABASE, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def init_database():
 
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
+    conn = get_connection()
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS air_quality_readings (
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS air_quality (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT,
+            aqi REAL,
             pm25 REAL,
             pm10 REAL,
-            no2 REAL,
-            so2 REAL,
-            co REAL,
-            o3 REAL,
-            aqi REAL,
+            carbon_monoxide REAL,
+            nitrogen_dioxide REAL,
+            ozone REAL,
             temperature REAL,
-            humidity REAL,
-            wind_speed REAL,
-            wind_direction REAL,
-            rainfall REAL
+            humidity REAL
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT,
+            aqi REAL,
+            level TEXT,
+            message TEXT
         )
     """)
 
     conn.commit()
     conn.close()
 
-    print("DATABASE READY")
-
 
 init_database()
 
 
 # =========================================================
-# AQI CALCULATION
+# AQI LEVEL
 # =========================================================
 
-def calculate_aqi(pm25):
-
-    if pm25 is None:
-        return 0
+def get_aqi_level(aqi):
 
     try:
-        pm25 = float(pm25)
+        aqi = float(aqi)
     except:
-        return 0
-
-    if pm25 <= 12:
-        aqi = pm25 * 50 / 12
-
-    elif pm25 <= 35.4:
-        aqi = 50 + (pm25 - 12) * 50 / (35.4 - 12)
-
-    elif pm25 <= 55.4:
-        aqi = 100 + (pm25 - 35.4) * 50 / (55.4 - 35.4)
-
-    elif pm25 <= 150.4:
-        aqi = 150 + (pm25 - 55.4) * 50 / (150.4 - 55.4)
-
-    elif pm25 <= 250.4:
-        aqi = 200 + (pm25 - 150.4) * 50 / (250.4 - 150.4)
-
-    else:
-        aqi = 300 + (pm25 - 250.4) * 100 / 249.6
-
-    return round(aqi, 2)
-
-
-# =========================================================
-# AQI CATEGORY
-# =========================================================
-
-def get_aqi_category(aqi):
+        return "Unknown"
 
     if aqi <= 50:
         return "Good"
@@ -152,46 +138,137 @@ def get_aqi_category(aqi):
 
 
 # =========================================================
-# SAVE READING
+# FETCH AIR QUALITY + WEATHER
 # =========================================================
 
-def save_reading(data):
+def fetch_current_data():
 
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
+    try:
 
-    cursor.execute("""
-        INSERT INTO air_quality_readings
+        air_url = (
+            "https://air-quality-api.open-meteo.com/v1/air-quality"
+            f"?latitude={LATITUDE}"
+            f"&longitude={LONGITUDE}"
+            "&current=pm2_5,pm10,carbon_monoxide,"
+            "nitrogen_dioxide,ozone"
+        )
+
+        weather_url = (
+            "https://api.open-meteo.com/v1/forecast"
+            f"?latitude={LATITUDE}"
+            f"&longitude={LONGITUDE}"
+            "&current=temperature_2m,relative_humidity_2m"
+        )
+
+        air_response = requests.get(air_url, timeout=20)
+        weather_response = requests.get(weather_url, timeout=20)
+
+        air_data = air_response.json()
+        weather_data = weather_response.json()
+
+        current_air = air_data.get("current", {})
+        current_weather = weather_data.get("current", {})
+
+        pm25 = current_air.get("pm2_5", 0)
+        pm10 = current_air.get("pm10", 0)
+        co = current_air.get("carbon_monoxide", 0)
+        no2 = current_air.get("nitrogen_dioxide", 0)
+        ozone = current_air.get("ozone", 0)
+
+        temperature = current_weather.get("temperature_2m", 0)
+        humidity = current_weather.get("relative_humidity_2m", 0)
+
+        # Simple AQI estimation for display
+        aqi = calculate_aqi(pm25, pm10, no2, ozone)
+
+        result = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "location": LOCATION_NAME,
+            "aqi": round(aqi, 2),
+            "level": get_aqi_level(aqi),
+            "pm25": pm25,
+            "pm10": pm10,
+            "carbon_monoxide": co,
+            "nitrogen_dioxide": no2,
+            "ozone": ozone,
+            "temperature": temperature,
+            "humidity": humidity
+        }
+
+        return result
+
+    except Exception as e:
+
+        print("DATA FETCH ERROR:", e)
+
+        return None
+
+
+# =========================================================
+# SIMPLE AQI CALCULATION
+# =========================================================
+
+def calculate_aqi(pm25, pm10, no2, ozone):
+
+    values = []
+
+    try:
+        if pm25 is not None:
+            values.append(float(pm25) * 4)
+
+        if pm10 is not None:
+            values.append(float(pm10) * 2)
+
+        if no2 is not None:
+            values.append(float(no2))
+
+        if ozone is not None:
+            values.append(float(ozone))
+
+    except:
+        pass
+
+    if not values:
+        return 0
+
+    return max(values)
+
+
+# =========================================================
+# SAVE DATA
+# =========================================================
+
+def save_air_quality(data):
+
+    if not data:
+        return
+
+    conn = get_connection()
+
+    conn.execute("""
+        INSERT INTO air_quality
         (
             timestamp,
+            aqi,
             pm25,
             pm10,
-            no2,
-            so2,
-            co,
-            o3,
-            aqi,
+            carbon_monoxide,
+            nitrogen_dioxide,
+            ozone,
             temperature,
-            humidity,
-            wind_speed,
-            wind_direction,
-            rainfall
+            humidity
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         data["timestamp"],
+        data["aqi"],
         data["pm25"],
         data["pm10"],
-        data["no2"],
-        data["so2"],
-        data["co"],
-        data["o3"],
-        data["aqi"],
+        data["carbon_monoxide"],
+        data["nitrogen_dioxide"],
+        data["ozone"],
         data["temperature"],
-        data["humidity"],
-        data["wind_speed"],
-        data["wind_direction"],
-        data["rainfall"]
+        data["humidity"]
     ))
 
     conn.commit()
@@ -199,148 +276,105 @@ def save_reading(data):
 
 
 # =========================================================
-# HOME
+# SAVE ALERT
+# =========================================================
+
+def save_alert(data):
+
+    if not data:
+        return
+
+    aqi = data["aqi"]
+    level = data["level"]
+
+    if aqi >= 200:
+
+        message = "Air quality is very poor. Avoid unnecessary outdoor activity."
+
+        conn = get_connection()
+
+        conn.execute("""
+            INSERT INTO alerts
+            (timestamp, aqi, level, message)
+            VALUES (?, ?, ?, ?)
+        """, (
+            data["timestamp"],
+            aqi,
+            level,
+            message
+        ))
+
+        conn.commit()
+        conn.close()
+
+
+# =========================================================
+# AUTOMATIC DATA COLLECTION
+# =========================================================
+
+def automatic_collection():
+
+    while True:
+
+        try:
+
+            data = fetch_current_data()
+
+            if data:
+
+                save_air_quality(data)
+                save_alert(data)
+
+                print(
+                    "Automatic data saved:",
+                    data["timestamp"],
+                    "AQI:",
+                    data["aqi"]
+                )
+
+        except Exception as e:
+
+            print("AUTO COLLECTION ERROR:", e)
+
+        # Every 60 seconds
+        time.sleep(60)
+
+
+# Start automatic collection
+collection_thread = threading.Thread(
+    target=automatic_collection,
+    daemon=True
+)
+
+collection_thread.start()
+
+
+# =========================================================
+# HOME PAGE
 # =========================================================
 
 @app.route("/")
 def home():
 
-    return send_from_directory(
-        PROJECT_DIR,
-        "index.html"
-    )
+    return send_from_directory(PROJECT_DIR, "index.html")
 
 
 # =========================================================
-# ENVIRONMENT
+# ENVIRONMENT / LIVE DATA
 # =========================================================
 
 @app.route("/environment")
 def environment():
 
-    try:
+    data = fetch_current_data()
 
-        air_url = "https://air-quality-api.open-meteo.com/v1/air-quality"
-
-        air_params = {
-            "latitude": LATITUDE,
-            "longitude": LONGITUDE,
-            "current": "pm2_5,pm10,nitrogen_dioxide,sulphur_dioxide,carbon_monoxide,ozone"
-        }
-
-        air_response = requests.get(
-            air_url,
-            params=air_params,
-            timeout=20
-        )
-
-        air_data = air_response.json()
-        current_air = air_data.get("current", {})
-
-        weather_url = "https://api.open-meteo.com/v1/forecast"
-
-        weather_params = {
-            "latitude": LATITUDE,
-            "longitude": LONGITUDE,
-            "current": "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation"
-        }
-
-        weather_response = requests.get(
-            weather_url,
-            params=weather_params,
-            timeout=20
-        )
-
-        weather_data = weather_response.json()
-        current_weather = weather_data.get("current", {})
-
-        pm25 = current_air.get("pm2_5", 0)
-        pm10 = current_air.get("pm10", 0)
-        no2 = current_air.get("nitrogen_dioxide", 0)
-        so2 = current_air.get("sulphur_dioxide", 0)
-        co = current_air.get("carbon_monoxide", 0)
-        o3 = current_air.get("ozone", 0)
-
-        temperature = current_weather.get("temperature_2m", 0)
-        humidity = current_weather.get("relative_humidity_2m", 0)
-        wind_speed = current_weather.get("wind_speed_10m", 0)
-        wind_direction = current_weather.get("wind_direction_10m", 0)
-        rainfall = current_weather.get("precipitation", 0)
-
-        aqi = calculate_aqi(pm25)
-        category = get_aqi_category(aqi)
-
-        timestamp = datetime.now().strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
-
-        reading = {
-            "timestamp": timestamp,
-            "pm25": pm25,
-            "pm10": pm10,
-            "no2": no2,
-            "so2": so2,
-            "co": co,
-            "o3": o3,
-            "aqi": aqi,
-            "temperature": temperature,
-            "humidity": humidity,
-            "wind_speed": wind_speed,
-            "wind_direction": wind_direction,
-            "rainfall": rainfall
-        }
-
-        save_reading(reading)
-
-        if aqi <= 50:
-            explanation = "Air quality is good. Outdoor activities are generally suitable."
-
-        elif aqi <= 100:
-            explanation = "Air quality is moderate. Sensitive people should monitor conditions."
-
-        elif aqi <= 200:
-            explanation = "Air quality is poor. Reduce prolonged outdoor exposure."
-
-        elif aqi <= 300:
-            explanation = "Air quality is very poor. Avoid unnecessary outdoor exposure."
-
-        else:
-            explanation = "Air quality is severe. Take precautions and reduce outdoor exposure."
+    if not data:
 
         return jsonify({
-
-            "status": "success",
-            "location": LOCATION_NAME,
-            "timestamp": timestamp,
-
-            "aqi": aqi,
-            "category": category,
-
-            "pm25": pm25,
-            "pm10": pm10,
-            "no2": no2,
-            "so2": so2,
-            "co": co,
-            "o3": o3,
-
-            "temperature": temperature,
-            "humidity": humidity,
-            "wind_speed": wind_speed,
-            "wind_direction": wind_direction,
-            "rainfall": rainfall,
-
-            "ai_explanation": explanation
-
-        })
-
-    except Exception as e:
-
-        print("Environment error:", e)
-
-        return jsonify({
-            "status": "error",
-            "message": str(e)
+            "error": "Unable to fetch current air quality data"
         }), 500
+
+    return jsonify(data)
 
 
 # =========================================================
@@ -352,54 +386,32 @@ def history():
 
     try:
 
-        days = request.args.get(
-            "days",
-            default=1,
-            type=int
-        )
+        days = int(request.args.get("days", 1))
 
-        if days not in [1, 7, 30]:
-            days = 1
+    except:
 
-        conn = sqlite3.connect(DATABASE)
-        conn.row_factory = sqlite3.Row
+        days = 1
 
-        cursor = conn.cursor()
+    if days not in [1, 7, 30]:
 
-        cursor.execute("""
-            SELECT *
-            FROM air_quality_readings
-            WHERE datetime(timestamp) >= datetime('now', ?)
-            ORDER BY timestamp DESC
-            LIMIT 1000
-        """, (f"-{days} days",))
+        days = 1
 
-        rows = cursor.fetchall()
+    start_time = datetime.now() - timedelta(days=days)
 
-        conn.close()
+    conn = get_connection()
 
-        data = [dict(row) for row in rows]
+    rows = conn.execute("""
+        SELECT *
+        FROM air_quality
+        WHERE timestamp >= ?
+        ORDER BY timestamp ASC
+    """, (
+        start_time.strftime("%Y-%m-%d %H:%M:%S"),
+    )).fetchall()
 
-        return jsonify({
+    conn.close()
 
-            "status": "success",
-            "days": days,
-            "count": len(data),
-            "data": data
-
-        })
-
-    except Exception as e:
-
-        print("History error:", e)
-
-        return jsonify({
-
-            "status": "error",
-            "message": str(e),
-            "data": []
-
-        }), 500
+    return jsonify([dict(row) for row in rows])
 
 
 # =========================================================
@@ -409,75 +421,18 @@ def history():
 @app.route("/alert-history")
 def alert_history():
 
-    try:
+    conn = get_connection()
 
-        conn = sqlite3.connect(DATABASE)
-        conn.row_factory = sqlite3.Row
+    rows = conn.execute("""
+        SELECT *
+        FROM alerts
+        ORDER BY timestamp DESC
+        LIMIT 100
+    """).fetchall()
 
-        cursor = conn.cursor()
+    conn.close()
 
-        cursor.execute("""
-            SELECT
-                id,
-                timestamp,
-                aqi,
-                pm25,
-                pm10
-            FROM air_quality_readings
-            WHERE aqi > 100
-            ORDER BY timestamp DESC
-            LIMIT 100
-        """)
-
-        rows = cursor.fetchall()
-
-        conn.close()
-
-        alerts = []
-
-        for row in rows:
-
-            aqi = row["aqi"]
-
-            if aqi <= 200:
-                level = "Poor"
-
-            elif aqi <= 300:
-                level = "Very Poor"
-
-            else:
-                level = "Severe"
-
-            alerts.append({
-
-                "id": row["id"],
-                "timestamp": row["timestamp"],
-                "aqi": row["aqi"],
-                "level": level,
-                "pm25": row["pm25"],
-                "pm10": row["pm10"]
-
-            })
-
-        return jsonify({
-
-            "status": "success",
-            "count": len(alerts),
-            "data": alerts
-
-        })
-
-    except Exception as e:
-
-        print("Alert history error:", e)
-
-        return jsonify({
-
-            "status": "error",
-            "message": str(e),
-            "data": []
-
-        }), 500
+    return jsonify([dict(row) for row in rows])
 
 
 # =========================================================
@@ -487,110 +442,70 @@ def alert_history():
 @app.route("/database-status")
 def database_status():
 
-    try:
+    conn = get_connection()
 
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.cursor()
+    count = conn.execute("""
+        SELECT COUNT(*) AS count
+        FROM air_quality
+    """).fetchone()["count"]
 
-        cursor.execute("""
-            SELECT COUNT(*)
-            FROM air_quality_readings
-        """)
+    latest = conn.execute("""
+        SELECT *
+        FROM air_quality
+        ORDER BY id DESC
+        LIMIT 1
+    """).fetchone()
 
-        count = cursor.fetchone()[0]
+    conn.close()
 
-        conn.close()
-
-        return jsonify({
-
-            "status": "success",
-            "count": count
-
-        })
-
-    except Exception as e:
-
-        return jsonify({
-
-            "status": "error",
-            "message": str(e)
-
-        }), 500
+    return jsonify({
+        "records": count,
+        "latest": dict(latest) if latest else None
+    })
 
 
 # =========================================================
-# ML FEATURES
+# ML FEATURE CREATION
 # =========================================================
 
 def create_ml_features(df):
 
-    result = pd.DataFrame(index=df.index)
+    if df.empty:
+        return df
 
-    for feature in features:
+    df = df.copy()
 
-        if feature in df.columns:
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-            result[feature] = df[feature]
+    df["hour"] = df["timestamp"].dt.hour
+    df["day_of_week"] = df["timestamp"].dt.dayofweek
+    df["month"] = df["timestamp"].dt.month
 
-        elif feature == "day_of_week":
+    # Rolling PM2.5
+    if "pm25" in df.columns:
 
-            result[feature] = pd.to_datetime(
-                df["timestamp"]
-            ).dt.dayofweek
+        df["pm25_12hours"] = (
+            df["pm25"]
+            .rolling(window=12, min_periods=1)
+            .mean()
+        )
 
-        elif feature == "hour":
+    else:
 
-            result[feature] = pd.to_datetime(
-                df["timestamp"]
-            ).dt.hour
+        df["pm25_12hours"] = 0
 
-        elif feature == "month":
+    # Ensure expected features exist
+    for feature in feature_names:
 
-            result[feature] = pd.to_datetime(
-                df["timestamp"]
-            ).dt.month
+        if feature not in df.columns:
 
-        elif feature == "pm25_12hours":
+            df[feature] = 0
 
-            result[feature] = (
-                df["pm25"]
-                .rolling(12)
-                .mean()
-                .bfill()
-            )
+    if feature_names:
 
-        elif feature == "pm25_24hours":
+        df = df[feature_names]
 
-            result[feature] = (
-                df["pm25"]
-                .rolling(24)
-                .mean()
-                .bfill()
-            )
-
-        elif feature == "aqi_12hours":
-
-            result[feature] = (
-                df["aqi"]
-                .rolling(12)
-                .mean()
-                .bfill()
-            )
-
-        elif feature == "aqi_24hours":
-
-            result[feature] = (
-                df["aqi"]
-                .rolling(24)
-                .mean()
-                .bfill()
-            )
-
-        else:
-
-            result[feature] = 0
-
-    return result
+    return df
 
 
 # =========================================================
@@ -600,234 +515,101 @@ def create_ml_features(df):
 @app.route("/forecast")
 def forecast():
 
+    if model is None:
+
+        return jsonify({
+            "error": "ML model not loaded"
+        }), 500
+
+    conn = get_connection()
+
+    rows = conn.execute("""
+        SELECT *
+        FROM air_quality
+        ORDER BY timestamp ASC
+        LIMIT 200
+    """).fetchall()
+
+    conn.close()
+
+    if not rows:
+
+        return jsonify({
+            "error": "No historical data available"
+        }), 404
+
+    df = pd.DataFrame([dict(row) for row in rows])
+
     try:
 
-        if model is None:
+        features = create_ml_features(df)
 
-            return jsonify({
-                "status": "error",
-                "message": "ML model is not loaded."
-            }), 500
+        prediction = model.predict(features)
 
-        forecast_url = (
-            "https://air-quality-api.open-meteo.com/v1/air-quality"
-        )
+        latest_prediction = float(prediction[-1])
 
-        params = {
+        forecasts = []
 
-            "latitude": LATITUDE,
-            "longitude": LONGITUDE,
+        for hours in [24, 48, 72]:
 
-            "hourly":
-                "pm2_5,pm10,nitrogen_dioxide,"
-                "sulphur_dioxide,carbon_monoxide,ozone",
-
-            "forecast_days": 3,
-            "timezone": "auto"
-
-        }
-
-        response = requests.get(
-            forecast_url,
-            params=params,
-            timeout=20
-        )
-
-        api_data = response.json()
-
-        hourly = api_data.get(
-            "hourly",
-            {}
-        )
-
-        times = hourly.get(
-            "time",
-            []
-        )
-
-        df = pd.DataFrame({
-
-            "timestamp": times,
-
-            "pm25": hourly.get(
-                "pm2_5",
-                []
-            ),
-
-            "pm10": hourly.get(
-                "pm10",
-                []
-            ),
-
-            "no2": hourly.get(
-                "nitrogen_dioxide",
-                []
-            ),
-
-            "so2": hourly.get(
-                "sulphur_dioxide",
-                []
-            ),
-
-            "co": hourly.get(
-                "carbon_monoxide",
-                []
-            ),
-
-            "o3": hourly.get(
-                "ozone",
-                []
-            )
-
-        })
-
-        if df.empty:
-
-            return jsonify({
-
-                "status": "error",
-                "message": "No forecast data available."
-
-            }), 500
-
-        df["aqi"] = df["pm25"].apply(
-            calculate_aqi
-        )
-
-        ml_features = create_ml_features(df)
-
-        predictions = model.predict(
-            ml_features
-        )
-
-        predictions = [
-            round(float(x), 2)
-            for x in predictions
-        ]
-
-        predictions = predictions[:72]
-
-        result = []
-
-        for i, value in enumerate(predictions):
-
-            result.append({
-
-                "timestamp": df.iloc[i]["timestamp"],
-                "aqi": value,
-                "category": get_aqi_category(value)
-
+            forecasts.append({
+                "hours": hours,
+                "predicted_aqi": round(latest_prediction, 2),
+                "level": get_aqi_level(latest_prediction)
             })
 
         return jsonify({
-
-            "status": "success",
-            "location": LOCATION_NAME,
-            "forecast_hours": len(result),
-            "data": result
-
+            "forecast": forecasts
         })
 
     except Exception as e:
 
-        print("Forecast error:", e)
+        print("FORECAST ERROR:", e)
 
         return jsonify({
-
-            "status": "error",
-            "message": str(e)
-
+            "error": str(e)
         }), 500
 
 
 # =========================================================
-# AUTOMATIC DATA COLLECTION
-# =========================================================
-
-def automatic_data_collection():
-
-    print("==========================================")
-    print("AUTOMATIC DATA COLLECTION STARTED")
-    print("Testing interval: 1 minute")
-    print("==========================================")
-
-    try:
-
-        with app.test_request_context():
-            environment()
-
-    except Exception as e:
-
-        print(
-            "Initial collection error:",
-            e
-        )
-
-    while True:
-
-        try:
-
-            time.sleep(60)
-
-            with app.test_request_context():
-                environment()
-
-            print(
-                "Automatic historical reading collected:",
-                datetime.now().strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                )
-            )
-
-        except Exception as e:
-
-            print(
-                "Automatic collection error:",
-                e
-            )
-
-
-# =========================================================
-# START AUTOMATIC COLLECTION
-# =========================================================
-
-collector_thread = threading.Thread(
-    target=automatic_data_collection,
-    daemon=True
-)
-
-collector_thread.start()
-
-
-# =========================================================
-# STATIC FILE ROUTE
-# IMPORTANT: KEEP THIS AT THE VERY END
+# STATIC FILES
 # =========================================================
 
 @app.route("/<path:filename>")
 def static_files(filename):
 
-    return send_from_directory(
-        PROJECT_DIR,
-        filename
-    )
+    file_path = os.path.join(PROJECT_DIR, filename)
+
+    if os.path.isfile(file_path):
+
+        return send_from_directory(
+            PROJECT_DIR,
+            filename
+        )
+
+    return jsonify({
+        "error": "File not found",
+        "file": filename
+    }), 404
 
 
 # =========================================================
-# START SERVER
+# RAILWAY / RENDER SERVER
 # =========================================================
 
 if __name__ == "__main__":
 
+    port = int(os.environ.get("PORT", 5000))
+
     print("==========================================")
     print("DELHI NCR AIR QUALITY MONITOR")
-    print("SERVER STARTING...")
-    print("http://127.0.0.1:5000")
+    print("Starting Flask server...")
+    print("PORT:", port)
     print("==========================================")
 
     app.run(
-        host="127.0.0.1",
-        port=5000,
-        debug=True,
+        host="0.0.0.0",
+        port=port,
+        debug=False,
         use_reloader=False
     )
