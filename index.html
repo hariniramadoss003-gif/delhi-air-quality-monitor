@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="icon" href="data:,">
+
+    <title>Delhi NCR Air Quality Monitor</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <!-- HEADER -->
+    <header class="header">
+
+        <div class="header-content">
+
+            <div class="brand-icon">
+                🌍
+            </div>
+
+            <div>
+                <h1>Delhi NCR Air Quality Monitor</h1>
+
+                <p>
+                    Real-Time Air Quality • Environmental Monitoring • ML Forecast
+                </p>
+            </div>
+
+        </div>
+
+        <div class="live-status">
+
+            <span class="status-dot"></span>
+
+            <span>LIVE</span>
+
+        </div>
+
+    </header>
+
+
+    <main class="container">
+
+
+        <!-- LOCATION -->
+        <section class="location-card">
+
+            <div class="location-main">
+
+                <div class="location-icon">
+                    📍
+                </div>
+
+                <div>
+
+                    <h2>Delhi NCR</h2>
+
+                    <p>
+                        Latitude: 28.6139 | Longitude: 77.2090
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <div class="source-info">
+
+                <span>DATA SOURCE</span>
+
+                <strong>Open-Meteo</strong>
+
+            </div>
+
+
+            <div class="update-info">
+
+                <span>LAST UPDATED</span>
+
+                <strong id="lastUpdated">
+                    Checking...
+                </strong>
+
+            </div>
+
+        </section>
+
+
+
+        <!-- CURRENT AQI -->
+        <section class="aqi-section">
+
+
+            <div class="aqi-card" id="aqiCard">
+
+                <div class="aqi-card-top">
+
+                    <p class="section-label">
+                        CURRENT AIR QUALITY INDEX
+                    </p>
+
+                    <span class="live-badge">
+                        LIVE DATA
+                    </span>
+
+                </div>
+
+
+                <div
+                    class="aqi-number"
+                    id="aqiValue">
+
+                    --
+
+                </div>
+
+
+                <div
+                    class="risk"
+                    id="riskValue">
+
+                    Loading...
+
+                </div>
+
+
+                <p
+                    class="aqi-description"
+                    id="aqiDescription">
+
+                    Fetching latest environmental data...
+
+                </p>
+
+
+                <div class="aqi-scale">
+
+                    <div>
+                        <span>0</span>
+                        <small>Good</small>
+                    </div>
+
+                    <div>
+                        <span>50</span>
+                        <small>Good</small>
+                    </div>
+
+                    <div>
+                        <span>100</span>
+                        <small>Moderate</small>
+                    </div>
+
+                    <div>
+                        <span>200</span>
+                        <small>Poor</small>
+                    </div>
+
+                    <div>
+                        <span>300+</span>
+                        <small>Severe</small>
+                    </div>
+
+                </div>
+
+            </div>
+
+
+
+            <!-- ALERT -->
+            <div
+                class="alert-card"
+                id="alertCard">
+
+
+                <div
+                    class="alert-icon"
+                    id="alertIcon">
+
+                    ℹ️
+
+                </div>
+
+
+                <div class="alert-content">
+
+
+                    <div class="alert-heading">
+
+                        <h3 id="alertTitle">
+                            Air Quality Status
+                        </h3>
+
+                        <span
+                            class="alert-level"
+                            id="alertLevel">
+
+                            Checking
+
+                        </span>
+
+                    </div>
+
+
+                    <p id="alertMessage">
+
+                        Checking current air quality...
+
+                    </p>
+
+
+                    <div
+                        class="alert-action"
+                        id="alertAction">
+
+                        Monitoring environmental conditions...
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+
+        <!-- POLLUTANTS -->
+        <section>
+
+
+            <div class="section-heading">
+
+                <div>
+
+                    <h2 class="section-title">
+                        🏭 Air Pollutants
+                    </h2>
+
+                    <p class="section-description">
+                        Current concentration of major air pollutants
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <div class="grid pollutant-grid">
+
+
+                <div class="card pollutant-card">
+
+                    <div class="card-icon">
+                        🌫️
+                    </div>
+
+                    <h3>PM2.5</h3>
+
+                    <div class="value">
+
+                        <span id="pm25Result">
+                            --
+                        </span>
+
+                        <small>
+                            µg/m³
+                        </small>
+
+                    </div>
+
+                    <div class="progress">
+
+                        <div id="pm25Bar"></div>
+
+                    </div>
+
+                </div>
+
+
+
+                <div class="card pollutant-card">
+
+                    <div class="card-icon">
+                        💨
+                    </div>
+
+                    <h3>PM10</h3>
+
+                    <div class="value">
+
+                        <span id="pm10Result">
+                            --
+                        </span>
+
+                        <small>
+                            µg/m³
+                        </small>
+
+                    </div>
+
+                </div>
+
+
+
+                <div class="card pollutant-card">
+
+                    <div class="card-icon">
+                        🧪
+                    </div>
+
+                    <h3>NO₂</h3>
+
+                    <div class="value">
+
+                        <span id="no2Value">
+                            --
+                        </span>
+
+                        <small>
+                            µg/m³
+                        </small>
+
+                    </div>
+
+                </div>
+
+
+
+                <div class="card pollutant-card">
+
+                    <div class="card-icon">
+                        ⚗️
+                    </div>
+
+                    <h3>SO₂</h3>
+
+                    <div class="value">
+
+                        <span id="so2Value">
+                            --
+                        </span>
+
+                        <small>
+                            µg/m³
+                        </small>
+
+                    </div>
+
+                </div>
+
+
+
+                <div class="card pollutant-card">
+
+                    <div class="card-icon">
+                        ☁️
+                    </div>
+
+                    <h3>CO</h3>
+
+                    <div class="value">
+
+                        <span id="coValue">
+                            --
+                        </span>
+
+                        <small>
+                            µg/m³
+                        </small>
+
+                    </div>
+
+                </div>
+
+
+
+                <div class="card pollutant-card">
+
+                    <div class="card-icon">
+                        🌤️
+                    </div>
+
+                    <h3>O₃</h3>
+
+                    <div class="value">
+
+                        <span id="o3Value">
+                            --
+                        </span>
+
+                        <small>
+                            µg/m³
+                        </small>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+
+        <!-- WEATHER -->
+        <section>
+
+
+            <div class="section-heading">
+
+                <div>
+
+                    <h2 class="section-title">
+                        🌦️ Environmental Conditions
+                    </h2>
+
+                    <p class="section-description">
+                        Current weather conditions affecting air quality
+                    </p>
+
+                </div>
+
+            </div>
+
+
+            <div class="grid weather-grid">
+
+
+                <div class="card weather-card">
+
+                    <div class="weather-icon">
+                        🌡️
+                    </div>
+
+                    <h3>Temperature</h3>
+
+                    <div class="value">
+
+                        <span id="temperatureValue">
+                            --
+                        </span>
+
+                        <small>
+                            °C
+                        </small>
+
+                    </div>
+
+                </div>
+
+
+
+                <div class="card weather-card">
+
+                    <div class="weather-icon">
+                        💧
+                    </div>
+
+                    <h3>Humidity</h3>
+
+                    <div class="value">
+
+                        <span id="humidityValue">
+                            --
+                        </span>
+
+                        <small>
+                            %
+                        </small>
+
+                    </div>
+
+                </div>
+
+
+
+                <div class="card weather-card">
+
+                    <div class="weather-icon">
+                        💨
+                    </div>
+
+                    <h3>Wind Speed</h3>
+
+                    <div class="value">
+
+                        <span id="windValue">
+                            --
+                        </span>
+
+                        <small>
+                            km/h
+                        </small>
+
+                    </div>
+
+                    <div class="progress">
+
+                        <div id="windBar"></div>
+
+                    </div>
+
+                </div>
+
+
+
+                <div class="card weather-card">
+
+                    <div class="weather-icon">
+                        🧭
+                    </div>
+
+                    <h3>Wind Direction</h3>
+
+                    <div class="value">
+
+                        <span id="windDirectionValue">
+                            --
+                        </span>
+
+                        <small>
+                            °
+                        </small>
+
+                    </div>
+
+                </div>
+
+
+
+                <div class="card weather-card">
+
+                    <div class="weather-icon">
+                        🌧️
+                    </div>
+
+                    <h3>Rainfall</h3>
+
+                    <div class="value">
+
+                        <span id="rainfallValue">
+                            --
+                        </span>
+
+                        <small>
+                            mm
+                        </small>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+
+        <!-- ENVIRONMENTAL ANALYSIS -->
+        <section class="analysis-card">
+
+            <div class="analysis-icon">
+                🤖
+            </div>
+
+
+            <div>
+
+                <div class="analysis-title-row">
+
+                    <h2>
+                        Environmental Analysis
+                    </h2>
+
+                    <span class="analysis-badge">
+                        AI ANALYSIS
+                    </span>
+
+                </div>
+
+
+                <p id="aiExplanation">
+
+                    Analyzing current environmental conditions...
+
+                </p>
+
+            </div>
+
+        </section>
+
+
+
+        <!-- HISTORICAL AQI -->
+        <section class="chart-section">
+
+
+            <div class="chart-header">
+
+
+                <div>
+
+                    <div class="chart-title-row">
+
+                        <h2>
+                            📈 Historical AQI Trend
+                        </h2>
+
+                        <span class="data-badge">
+                            DATABASE
+                        </span>
+
+                    </div>
+
+
+                    <p>
+                        Automatically collected AQI readings stored in SQLite
+                    </p>
+
+                </div>
+
+
+                <div
+                    class="database-status"
+                    id="databaseStatus">
+
+                    <span class="db-dot"></span>
+
+                    Checking database...
+
+                </div>
+
+            </div>
+
+
+
+            <!-- HISTORY FILTER BUTTONS -->
+
+            <div class="history-filters">
+
+
+                <button
+                    id="todayBtn"
+                    class="active-filter"
+                    onclick="loadHistory(1)">
+
+                    Today
+
+                </button>
+
+
+                <button
+                    id="sevenDaysBtn"
+                    onclick="loadHistory(7)">
+
+                    7 Days
+
+                </button>
+
+
+                <button
+                    id="thirtyDaysBtn"
+                    onclick="loadHistory(30)">
+
+                    30 Days
+
+                </button>
+
+
+            </div>
+
+
+
+            <!-- HISTORY CHART -->
+
+            <div class="chart-container">
+
+                <canvas id="historyChart"></canvas>
+
+            </div>
+
+
+            <p
+                class="chart-note"
+                id="historyMessage">
+
+                Loading historical readings...
+
+            </p>
+
+
+        </section>
+
+
+
+        <!-- ML FORECAST -->
+        <section class="forecast-section">
+
+
+            <div class="section-heading forecast-heading">
+
+
+                <div>
+
+                    <h2 class="section-title">
+                        🔮 ML-Based AQI Forecast
+                    </h2>
+
+                    <p class="section-description">
+                        Random Forest based multi-step AQI forecasting
+                    </p>
+
+                </div>
+
+
+                <span class="ml-badge">
+                    MACHINE LEARNING
+                </span>
+
+            </div>
+
+
+
+            <!-- FORECAST CARDS -->
+
+            <div class="forecast-cards">
+
+
+                <div class="forecast-card">
+
+                    <span class="forecast-time">
+                        NEXT 24 HOURS
+                    </span>
+
+
+                    <div class="forecast-value">
+
+                        <span id="forecast24">
+                            --
+                        </span>
+
+                    </div>
+
+
+                    <div
+                        class="forecast-category"
+                        id="forecast24Category">
+
+                        Waiting...
+
+                    </div>
+
+
+                    <p>
+                        Predicted AQI
+                    </p>
+
+                </div>
+
+
+
+                <div class="forecast-card">
+
+                    <span class="forecast-time">
+                        NEXT 48 HOURS
+                    </span>
+
+
+                    <div class="forecast-value">
+
+                        <span id="forecast48">
+                            --
+                        </span>
+
+                    </div>
+
+
+                    <div
+                        class="forecast-category"
+                        id="forecast48Category">
+
+                        Waiting...
+
+                    </div>
+
+
+                    <p>
+                        Predicted AQI
+                    </p>
+
+                </div>
+
+
+
+                <div class="forecast-card">
+
+                    <span class="forecast-time">
+                        NEXT 72 HOURS
+                    </span>
+
+
+                    <div class="forecast-value">
+
+                        <span id="forecast72">
+                            --
+                        </span>
+
+                    </div>
+
+
+                    <div
+                        class="forecast-category"
+                        id="forecast72Category">
+
+                        Waiting...
+
+                    </div>
+
+
+                    <p>
+                        Predicted AQI
+                    </p>
+
+                </div>
+
+            </div>
+
+
+
+            <!-- FORECAST CHART -->
+
+            <div class="chart-section forecast-chart">
+
+
+                <div class="chart-title-row">
+
+                    <h2>
+                        📊 72-Hour AQI Forecast
+                    </h2>
+
+                    <span class="prediction-badge">
+                        PREDICTION
+                    </span>
+
+                </div>
+
+
+                <p class="chart-subtitle">
+
+                    ML model prediction for upcoming air quality conditions
+
+                </p>
+
+
+                <div class="chart-container">
+
+                    <canvas id="aqiForecastChart"></canvas>
+
+                </div>
+
+            </div>
+
+
+            <div
+                class="forecast-status"
+                id="forecastMessage">
+
+                Loading ML forecast...
+
+            </div>
+
+        </section>
+
+
+
+        <!-- SYSTEM INFORMATION -->
+        <section class="system-card">
+
+
+            <div class="system-header">
+
+
+                <div>
+
+                    <h2>
+                        ⚙️ System Information
+                    </h2>
+
+                    <p>
+                        Technology and monitoring configuration
+                    </p>
+
+                </div>
+
+
+                <span class="system-status">
+
+                    ● SYSTEM ACTIVE
+
+                </span>
+
+            </div>
+
+
+
+            <div class="system-grid">
+
+
+                <div>
+
+                    <strong>
+                        DATA SOURCE
+                    </strong>
+
+                    <span>
+                        Open-Meteo
+                    </span>
+
+                </div>
+
+
+                <div>
+
+                    <strong>
+                        DATABASE
+                    </strong>
+
+                    <span>
+                        SQLite
+                    </span>
+
+                </div>
+
+
+                <div>
+
+                    <strong>
+                        ML MODEL
+                    </strong>
+
+                    <span>
+                        Random Forest Regressor
+                    </span>
+
+                </div>
+
+
+                <div>
+
+                    <strong>
+                        FORECAST TARGET
+                    </strong>
+
+                    <span>
+                        24-Hour-Ahead AQI
+                    </span>
+
+                </div>
+
+
+                <div>
+
+                    <strong>
+                        FORECAST RANGE
+                    </strong>
+
+                    <span>
+                        72 Hours
+                    </span>
+
+                </div>
+
+
+                <div>
+
+                    <strong>
+                        LOCATION
+                    </strong>
+
+                    <span>
+                        Delhi NCR
+                    </span>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+
+        <!-- FOOTER -->
+
+        <footer>
+
+            <p class="footer-title">
+                Delhi NCR Air Quality Monitor
+            </p>
+
+            <p>
+                Real-Time Monitoring • Historical Analysis • Machine Learning Forecast
+            </p>
+
+            <p class="footer-small">
+                Environmental data powered by Open-Meteo
+            </p>
+
+        </footer>
+
+
+    </main>
+
+
+    <script src="script.js"></script>
+
+</body>
+
+</html>
